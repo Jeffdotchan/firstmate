@@ -2358,6 +2358,16 @@ if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
         ;;
     esac
   fi
+  # After complete, the status fold is empty (captain-held transfer) but the
+  # backlog hold is still queued+held until resolve/decline.
+  if fm_tasks_axi_compatible; then
+    if FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+        FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-decision-hold.sh" has-active "$ID"; then
+      echo "REFUSED: task $ID still has an active captain-held decision." >&2
+      echo "Close it with bin/fm-decision-hold.sh resolve|decline, or use --force after explicit discard approval." >&2
+      exit 1
+    fi
+  fi
 fi
 
 # A public commitment is not kept until its final reply lands in the ORIGINAL

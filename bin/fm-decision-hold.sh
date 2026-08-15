@@ -22,6 +22,7 @@
 #     --title <title> --reason <reason> [--repo <repo>]
 #   fm-decision-hold.sh complete <origin-id> (--none | <decision-key>...)
 #   fm-decision-hold.sh verify <origin-id>
+#   fm-decision-hold.sh has-active <origin-id>
 #   fm-decision-hold.sh resolve <origin-id> <decision-key> \
 #     --decision-file <path> --routed-to <task-id> [--routed-to <task-id>...]
 #   fm-decision-hold.sh decline <origin-id> <decision-key> --decision-file <path>
@@ -464,6 +465,20 @@ EOF
   printf 'complete: %s decision inventory reviewed%s\n' "$origin" "${keys:+ ($keys)}"
 }
 
+command_has_active() {
+  local origin=${1:-} prefix rows
+  [ "$#" -eq 1 ] || { usage >&2; exit 2; }
+  validate_slug origin-id "$origin"
+  require_tasks_axi
+  prefix="${origin}-decision-"
+  rows=$(tasks_axi list --state held --kind captain --fields held,hold_kind 2>/dev/null) \
+    || fail "could not list captain-held work for $origin"
+  case "$rows" in
+    *"$prefix"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 command_verify() {
   local origin=${1:-} meta reviewed keys key open
   [ "$#" -eq 1 ] || { usage >&2; exit 2; }
@@ -654,6 +669,7 @@ case "${1:-}" in
   hold) shift; command_hold "$@" ;;
   complete) shift; command_complete "$@" ;;
   verify) shift; command_verify "$@" ;;
+  has-active) shift; command_has_active "$@" ;;
   resolve) shift; command_resolve "$@" ;;
   decline) shift; command_decline "$@" ;;
   repair) shift; command_repair "$@" ;;
