@@ -259,7 +259,17 @@ test_incremental_agrees_with_full_fold_across_appends() {
   pass "the incremental fold matches the full fold across appends in both key positions"
 }
 
+test_trailing_key_tag_is_honored() {
+  local dir expected
+  dir=$(case_dir trailing)
+  printf 'needs-decision: trial-hold payload A or B [key=trial-hold-payload]\n' > "$dir/t.status"
+  expected=$(printf 'trial-hold-payload\tneeds-decision\ttrial-hold payload A or B\n')
+  assert_fold "$dir/t.status" "$expected" "trailing [key=] tag"
+  pass "a trailing [key=X] tag opens X and is stripped from the note"
+}
+
 test_stated_key_is_honored_in_both_positions
+test_trailing_key_tag_is_honored
 test_bare_keyless_line_still_folds_to_default
 test_resolution_closes_across_positions
 test_blocked_is_position_tolerant_like_needs_decision

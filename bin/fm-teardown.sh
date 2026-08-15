@@ -29,6 +29,10 @@
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
+# Ship and scout tasks with an OPEN status decision (needs-decision/blocked
+# that has not been resolved or captain-held-transferred) also refuse, even
+# when the worktree has no commits. An unanswered captain wait is not landed
+# work and must not be reaped.
 # Before destructive cleanup, teardown validates task check artifacts and any
 # matching quarantine entries as ordinary single-link files on the state
 # device. It refuses and preserves task state when that proof fails; otherwise
@@ -2326,6 +2330,33 @@ if [ "$KIND" = scout ] && [ "$FORCE" != "--force" ]; then
     echo "REFUSED: scout task $ID has not passed the unresolved-decision completion gate." >&2
     echo "Inventory its report and any visual review through bin/fm-decision-hold.sh before teardown." >&2
     exit 1
+  fi
+fi
+
+# Unanswered captain waits block teardown for every kind. A ship that only
+# created a branch and asked a question has no unlanded commits, so the landed-
+# work check would otherwise allow cleanup and reap the waiting agent.
+if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
+  _td_status="$STATE/$ID.status"
+  _td_open=''
+  if [ -f "$_td_status" ]; then
+    _td_open=$(status_open_decisions "$_td_status" || true)
+  fi
+  if [ -n "$_td_open" ]; then
+    echo "REFUSED: task $ID still has an open captain decision." >&2
+    echo "Answer it through bin/fm-decision-hold.sh resolve|decline, or use --force after explicit discard approval." >&2
+    exit 1
+  fi
+  if [ -f "$_td_status" ]; then
+    _td_last=$(last_status_line "$_td_status")
+    _td_verb=$(status_line_verb "$_td_last")
+    case "$_td_verb" in
+      needs-decision|blocked)
+        echo "REFUSED: task $ID last reported $_td_verb; the captain wait is still open." >&2
+        echo "Answer it through bin/fm-decision-hold.sh resolve|decline, or use --force after explicit discard approval." >&2
+        exit 1
+        ;;
+    esac
   fi
 fi
 

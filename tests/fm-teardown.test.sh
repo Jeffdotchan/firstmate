@@ -2591,7 +2591,45 @@ EOF
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
 }
 
+test_ship_open_needs_decision_refuses_even_without_commits() {
+  local case_dir rc
+  case_dir=$(make_case ship-open-decision)
+  write_meta "$case_dir" direct-PR ship
+  printf 'needs-decision: trial-hold payload A or B [key=trial-hold-payload]\n' \
+    > "$case_dir/state/task-x1.status"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  [ "$rc" -ne 0 ] || fail "ship-open-decision: teardown succeeded while needs-decision is open"
+  grep -q 'open captain decision' "$case_dir/stderr" \
+    || fail "ship-open-decision: stderr lacked open-decision refusal: $(cat "$case_dir/stderr")"
+  [ -f "$case_dir/state/task-x1.meta" ] \
+    || fail "ship-open-decision: teardown removed meta despite refusal"
+  pass "ship with open needs-decision refuses teardown even with no commits"
+}
+
+test_ship_open_needs_decision_force_allows() {
+  local case_dir rc
+  case_dir=$(make_case ship-open-decision-force)
+  write_meta "$case_dir" direct-PR ship
+  printf 'needs-decision: trial-hold payload A or B [key=trial-hold-payload]\n' \
+    > "$case_dir/state/task-x1.status"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "ship-open-decision-force: --force should still teardown"
+  pass "ship with open needs-decision can be discarded with --force"
+}
+
 test_local_only_fork_remote_allows
+test_ship_open_needs_decision_refuses_even_without_commits
+test_ship_open_needs_decision_force_allows
 test_teardown_prompts_tasks_axi_done_when_compatible
 test_teardown_manual_backend_prompts_hand_edit_even_when_tasks_axi_present
 test_local_only_truly_unpushed_refuses
