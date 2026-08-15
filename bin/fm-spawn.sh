@@ -1738,12 +1738,13 @@ freshen_spawn_worktree_base() {  # <worktree>
     has_origin=1
   fi
 
-  # local-only + no origin: refresh from the project's primary local checkout
-  # rather than dying on `git fetch origin`. Any other no-origin case (and every
-  # origin-backed case) keeps the origin path so non-local-only spawns still refuse
-  # when origin is missing or unreachable.
+  # local-only ships and scouts + no origin: refresh from the project's primary
+  # local checkout rather than dying on `git fetch origin`. Scouts refuse --mode,
+  # so KIND=scout must take the same path or a local-only lab cannot be scouted.
+  # Origin-backed cases and non-local-only ships keep the origin path so a
+  # no-mistakes ship still refuses when origin is missing or unreachable.
   if [ "$has_origin" -eq 0 ]; then
-    if [ "${MODE:-}" = local-only ]; then
+    if [ "${MODE:-}" = local-only ] || [ "${KIND:-}" = scout ]; then
       use_local_primary=1
     else
       echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2

@@ -355,7 +355,28 @@ test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
 test_unresolved_remote_default_refuses_pool
 test_unreachable_origin_refuses_stale_pool_base
+test_local_only_no_origin_scout_refreshes_from_primary() {
+  local rec id out status branch_head primary_tip
+  id='pool-local-only-no-origin-scout-r9'
+  rec=$(make_local_only_no_origin_case local-only-no-origin-scout "$id")
+  read_local_only_case_record "$rec"
+
+  out=$(run_spawn "$id" --scout)
+  status=$?
+  expect_code 0 "$status" "local-only no-origin scout should refresh from the primary local checkout"
+  assert_contains "$out" "spawned $id" "local-only no-origin scout did not report success"
+  assert_not_contains "$out" "could not fetch origin" \
+    "local-only no-origin scout incorrectly attempted an origin fetch"
+
+  primary_tip=$(git -C "$PROJECT_DIR" rev-parse HEAD)
+  branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
+  [ "$branch_head" = "$primary_tip" ] \
+    || fail "local-only no-origin scout left the pooled worktree off the primary tip"
+  pass "a local-only no-origin scout refreshes from the primary local checkout"
+}
+
 test_local_only_no_origin_refreshes_from_primary
+test_local_only_no_origin_scout_refreshes_from_primary
 test_local_only_no_origin_dirty_refuses_without_discarding_work
 test_non_local_only_no_origin_still_refuses
 
