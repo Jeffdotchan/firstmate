@@ -5,7 +5,8 @@
 # advanced after the worktree was allocated.
 # These tests drive the real spawn path with a fake terminal, then prove it
 # starts the worker from the fetched origin/main tip or stops when origin is
-# unreachable.
+# unreachable. A local-only project with no origin remote instead refreshes from
+# the primary local checkout's default-branch tip.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -227,11 +228,135 @@ test_unresolved_remote_default_refuses_pool() {
   pass "an unresolved remote default branch refuses the pooled worktree"
 }
 
+# local-only project whose worktree has no origin remote: refresh from the
+# primary local checkout instead of dying on `git fetch origin`.
+make_local_only_no_origin_case() {
+  local name=$1 id=$2 default=${3:-main} case_dir home project pool fakebin initial advanced
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  project="$case_dir/project"
+  pool="$case_dir/pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  touch "$home/state/.last-watcher-beat"
+
+  git init --quiet -b "$default" "$project"
+  printf 'base\n' > "$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  # No origin remote on purpose: this is the local-only no-origin path.
+  initial=$(git -C "$project" rev-parse HEAD)
+  git -C "$project" worktree add --quiet --detach "$pool" "$initial"
+
+  # Advance the primary local checkout after the pool was allocated so the
+  # freshen path must pull the new tip from the primary, not from origin.
+  printf 'must survive a newly spawned local-only branch\n' > "$project/advanced-main.txt"
+  git -C "$project" add advanced-main.txt
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm advance-main
+  advanced=$(git -C "$project" rev-parse HEAD)
+
+  printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin|$initial|$default|$advanced"
+}
+
+read_local_only_case_record() {
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR POOL_DIR FAKEBIN_DIR INITIAL_SHA DEFAULT_BRANCH ADVANCED_SHA <<EOF
+$1
+EOF
+}
+
+test_local_only_no_origin_refreshes_from_primary() {
+  local rec id out status branch_head primary_tip
+  id='pool-local-only-no-origin-r6'
+  rec=$(make_local_only_no_origin_case local-only-no-origin "$id")
+  read_local_only_case_record "$rec"
+
+  # Prove the pool starts stale relative to the primary tip.
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+    || fail "fixture pool was not detached at the initial primary tip"
+  [ "$ADVANCED_SHA" != "$INITIAL_SHA" ] \
+    || fail "fixture did not advance the primary past the pool base"
+  if git -C "$POOL_DIR" remote get-url origin >/dev/null 2>&1; then
+    fail "fixture incorrectly configured an origin remote on the local-only pool"
+  fi
+  if git -C "$PROJECT_DIR" remote get-url origin >/dev/null 2>&1; then
+    fail "fixture incorrectly configured an origin remote on the primary checkout"
+  fi
+
+  out=$(run_spawn "$id" --mode local-only --yolo off)
+  status=$?
+  expect_code 0 "$status" "local-only no-origin spawn should refresh from the primary local checkout"
+  assert_contains "$out" "spawned $id" "local-only no-origin spawn did not report success"
+  assert_not_contains "$out" "could not fetch origin" \
+    "local-only no-origin spawn incorrectly attempted an origin fetch"
+
+  primary_tip=$(git -C "$PROJECT_DIR" rev-parse HEAD)
+  branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
+  [ "$primary_tip" = "$ADVANCED_SHA" ] || fail "primary tip drifted during the spawn"
+  [ "$branch_head" = "$primary_tip" ] \
+    || fail "local-only no-origin spawn left the pooled worktree off the primary tip"
+  [ "$branch_head" != "$INITIAL_SHA" ] \
+    || fail "local-only no-origin spawn did not advance past the stale pool base"
+  assert_grep 'must survive a newly spawned local-only branch' "$POOL_DIR/advanced-main.txt" \
+    "local-only no-origin spawn omitted advanced-main content from the primary"
+
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# observed local-only no-origin spawn: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+    printf '# observed base: HEAD=%s primary=%s advanced=%s\n' \
+      "$branch_head" "$primary_tip" "$ADVANCED_SHA"
+  fi
+  pass "a local-only no-origin pooled worktree refreshes from the primary local checkout"
+}
+
+test_local_only_no_origin_dirty_refuses_without_discarding_work() {
+  local rec id out status before
+  id='pool-local-only-no-origin-dirty-r7'
+  rec=$(make_local_only_no_origin_case local-only-no-origin-dirty "$id")
+  read_local_only_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  printf 'keep this local work\n' > "$POOL_DIR/uncommitted.txt"
+
+  out=$(run_spawn "$id" --mode local-only --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "local-only no-origin spawn succeeded despite a dirty pooled worktree"
+  assert_contains "$out" "is not clean" \
+    "local-only no-origin spawn did not clearly refuse a dirty pooled worktree"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "local-only no-origin spawn moved HEAD while refusing a dirty pool"
+  assert_grep 'keep this local work' "$POOL_DIR/uncommitted.txt" \
+    "local-only no-origin spawn discarded uncommitted work while refusing the pool"
+  pass "a dirty local-only no-origin pool is refused without discarding local work"
+}
+
+test_non_local_only_no_origin_still_refuses() {
+  local rec id out status before
+  id='pool-no-mistakes-no-origin-r8'
+  rec=$(make_local_only_no_origin_case no-mistakes-no-origin "$id")
+  read_local_only_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+
+  # no-mistakes without origin must still refuse rather than silently using the
+  # primary tip (that path is reserved for local-only).
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "no-mistakes no-origin spawn succeeded when it should refuse"
+  assert_contains "$out" "could not fetch origin" \
+    "no-mistakes no-origin spawn did not clearly refuse a missing origin"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "no-mistakes no-origin spawn moved HEAD after refusing"
+  pass "a no-mistakes no-origin pool still refuses rather than using the local-primary path"
+}
+
 test_stale_pool_base_refreshes_before_branching
 test_non_main_default_branch_refreshes_before_branching
 test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
 test_unresolved_remote_default_refuses_pool
 test_unreachable_origin_refuses_stale_pool_base
+test_local_only_no_origin_refreshes_from_primary
+test_local_only_no_origin_dirty_refuses_without_discarding_work
+test_non_local_only_no_origin_still_refuses
 
 echo "# all fm-spawn-pool-base-freshen tests passed"
