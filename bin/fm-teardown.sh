@@ -189,6 +189,42 @@ DESCENDANT_TASK_STATES=()
 DESCENDANT_TASK_IDS=()
 DESCENDANT_TASK_KINDS=()
 DESCENDANT_TASK_HOMES=()
+# Archive the task's dispatch record before teardown removes it.
+#
+# state/<id>.meta is the ONLY place firstmate records the resolved harness,
+# model, and effort for a task, and teardown deletes it - so once a task ends,
+# what it was actually routed on is unrecoverable from this home. Reconstructing
+# it later means excavating each harness's own private session store, and the
+# effort axis is not recorded there at all. Copy the meta into data/<id>/, which
+# survives teardown alongside the brief, so "what did we route this on" stays
+# answerable. Same key=value format, so fm_meta_get reads an archived record
+# unchanged.
+#
+# Never fatal: a failed archive must not block a teardown that is otherwise
+# complete. Every failure path returns 0.
+#
+# Scope: the primary's own tasks. A secondmate home's child metas are removed
+# with the home itself, and archiving those into the primary's data/ would risk
+# a task-id collision across homes.
+archive_dispatch_record() {  # <meta-path> <task-id>
+  local meta=$1 id=$2 dir
+  [ -f "$meta" ] || return 0
+  [ -n "$id" ] || return 0
+  # Only archive into a data root that already exists. Every real task has one
+  # by teardown time (fm-brief.sh writes data/<id>/brief.md at spawn), while a
+  # harness whose DATA resolves somewhere incidental - a test run that overrides
+  # only FM_STATE_OVERRIDE, for instance - is left untouched rather than having
+  # a data tree conjured under it.
+  [ -d "$DATA" ] || return 0
+  dir="$DATA/$id"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  {
+    cat -- "$meta" || return 0
+    printf 'archived_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$dir/dispatch.meta" 2>/dev/null || return 0
+  return 0
+}
+
 teardown_release_locks() {
   local status=$? i
   if declare -F teardown_release_herdr_locks >/dev/null 2>&1; then
@@ -399,6 +435,7 @@ remote_secondmate_teardown() {
   grep -vE "^- $ID( |$)" "$SECONDMATE_REG" > "$tmp" || true
   mv -f -- "$tmp" "$SECONDMATE_REG"
   status_retire_presentation_task "$STATE" "$ID" || return 1
+  archive_dispatch_record "$STATE/$ID.meta" "$ID"
   rm -f -- "$STATE/$ID.meta" "$STATE/$ID.turn-ended"
   printf 'teardown %s complete (remote %s:%s)\n' "$ID" "$remote_host" "$remote_home"
   return 0
@@ -2579,6 +2616,7 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
+archive_dispatch_record "$STATE/$ID.meta" "$ID"
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \

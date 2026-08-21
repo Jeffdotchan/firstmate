@@ -49,6 +49,11 @@
 #   (w) index.lock mtime read failure                         -> lock kept, REFUSE
 #   (x) transient lock cleared after first failed return      -> retry ALLOW
 #   (y) persistent lock (never clears, not provably stale)    -> REFUSE loudly
+#
+# Also covers the dispatch-record archive: state/<id>.meta is the only record of
+# the resolved harness/model/effort, and teardown removes it.
+#   (z) data root present  -> record copied to data/<id>/dispatch.meta first
+#   (aa) data root absent  -> no data tree conjured, teardown still completes
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -2627,6 +2632,50 @@ test_ship_open_needs_decision_force_allows() {
   pass "ship with open needs-decision can be discarded with --force"
 }
 
+
+# --- dispatch-record archive ------------------------------------------------
+#
+# state/<id>.meta is the only place the resolved harness/model/effort is
+# recorded, and teardown removes it. These cases pin that the record is copied
+# into data/<id>/dispatch.meta first, and that a home with no data root is left
+# alone rather than having one conjured under it.
+
+test_dispatch_record_is_archived_before_state_meta_is_removed() {
+  local case_dir archived
+  case_dir=$(make_case dispatch-archive)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/9' \
+    'harness=claude' 'model=opus' 'effort=high' >> "$case_dir/state/task-x1.meta"
+  mkdir -p "$case_dir/data"
+
+  FM_DATA_OVERRIDE="$case_dir/data" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "dispatch-archive: teardown failed: $(cat "$case_dir/stderr")"
+
+  archived="$case_dir/data/task-x1/dispatch.meta"
+  [ -f "$archived" ] || fail "dispatch-archive: no archived record at $archived"
+  grep -Fxq 'harness=claude' "$archived" || fail "dispatch-archive: harness not preserved"
+  grep -Fxq 'model=opus' "$archived" || fail "dispatch-archive: model not preserved"
+  grep -Fxq 'effort=high' "$archived" || fail "dispatch-archive: effort not preserved"
+  grep -q '^archived_at=' "$archived" || fail "dispatch-archive: no archived_at stamp"
+  [ ! -f "$case_dir/state/task-x1.meta" ] || fail "dispatch-archive: state meta survived teardown"
+  pass "teardown archives the dispatch record before removing the state meta"
+}
+
+test_dispatch_archive_skips_when_no_data_root() {
+  local case_dir
+  case_dir=$(make_case dispatch-archive-no-data)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'pr=https://github.com/example/repo/pull/9' 'model=opus' >> "$case_dir/state/task-x1.meta"
+
+  FM_DATA_OVERRIDE="$case_dir/data" run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "dispatch-archive-no-data: teardown failed: $(cat "$case_dir/stderr")"
+
+  [ ! -e "$case_dir/data" ] || fail "dispatch-archive-no-data: teardown created a data root"
+  [ ! -f "$case_dir/state/task-x1.meta" ] || fail "dispatch-archive-no-data: state meta survived teardown"
+  pass "teardown leaves an absent data root alone and still completes"
+}
+
+
 test_local_only_fork_remote_allows
 test_ship_open_needs_decision_refuses_even_without_commits
 test_ship_open_needs_decision_force_allows
@@ -2687,3 +2736,6 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+
+test_dispatch_record_is_archived_before_state_meta_is_removed
+test_dispatch_archive_skips_when_no_data_root
