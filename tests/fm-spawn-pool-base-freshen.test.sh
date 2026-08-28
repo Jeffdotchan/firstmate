@@ -5,8 +5,11 @@
 # advanced after the worktree was allocated.
 # These tests drive the real spawn path with a fake terminal, then prove it
 # starts the worker from the fetched origin/main tip or stops when origin is
-# unreachable. A local-only project with no origin remote instead refreshes from
-# the primary local checkout's default-branch tip.
+# unreachable.
+# A local-only project with no origin remote instead refreshes from the primary
+# local checkout's default-branch tip.
+# A slot whose only deviation is a stale submodule gitlink is still refused, but
+# is named as a stale checkout rather than reported as uncommitted work.
 set -u
 
 # shellcheck source=tests/lib.sh
