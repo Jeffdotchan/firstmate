@@ -1565,6 +1565,33 @@ conclude_task_no_mistakes_run() {  # <worktree>
   return 1
 }
 
+# One system-wide `lsof -a -d cwd` scan, bounded by WALL-CLOCK as well as by
+# process count.
+#
+# lsof reads every process's cwd, so a SINGLE process wedged in uninterruptible
+# (U/D) state - e.g. a `find`/`bfs` stuck on an unresponsive network mount -
+# blocks the whole scan indefinitely. reap_task_worktree_processes() calls this
+# up to ~9 times per root (3 passes x ~3 calls) across both the worktree and the
+# tasktmp, so one such process turns teardown into an unbounded hang rather than
+# a slow run. Bounding it converts that hang into the caller's existing loud
+# REFUSED path, which preserves the worktree/tasktmp for inspection or retry.
+#
+# fm_run_timed always resolves a mechanism (external timeout/gtimeout, perl, or
+# a pure-bash fallback), so a restricted PATH degrades the bound rather than
+# failing the scan. If the helper cannot be sourced at all, fall back to the
+# unbounded call - the previous behaviour - rather than refusing every teardown.
+teardown_lsof_cwd_scan() {
+  if ! declare -F fm_run_timed >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-timeout-lib.sh
+    . "$SCRIPT_DIR/fm-timeout-lib.sh" 2>/dev/null || true
+  fi
+  if declare -F fm_run_timed >/dev/null 2>&1; then
+    fm_run_timed "${FM_TEARDOWN_LSOF_TIMEOUT:-20}" lsof -a -d cwd -Fpn 2>/dev/null
+    return $?
+  fi
+  lsof -a -d cwd -Fpn 2>/dev/null
+}
+
 # Fix 2 (see script header): pids of every process whose CURRENT WORKING
 # DIRECTORY is exactly $1 or under it, from one bounded system-wide `lsof -a
 # -d cwd` scan (never the recursive +D file-tree walk, which lsof itself
@@ -1574,7 +1601,7 @@ pids_with_cwd_under() {  # <dir>
   local dir=$1 out pid path line
   [ -n "$dir" ] && [ -d "$dir" ] || return 0
   dir=$(cd "$dir" && pwd -P) || return 1
-  out=$(lsof -a -d cwd -Fpn 2>/dev/null) || return 1
+  out=$(teardown_lsof_cwd_scan) || return 1
   [ -n "$out" ] || return 0
   pid=
   while IFS= read -r line; do
