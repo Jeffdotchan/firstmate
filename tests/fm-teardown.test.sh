@@ -2363,6 +2363,7 @@ EOF
     fm_run_timed "$window" env - \
       "PATH=$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
       "HOME=${HOME:-/tmp}" \
+      "FM_GATE_REFUSE_BYPASS=$FM_GATE_REFUSE_BYPASS" \
       "FM_TEARDOWN_LSOF_TIMEOUT=$bound" \
       "FM_ROOT_OVERRIDE=$ROOT" \
       "FM_STATE_OVERRIDE=$case_dir/state" \

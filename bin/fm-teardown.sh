@@ -125,9 +125,10 @@
 #     hours with no live task meta to attribute them to once teardown had
 #     already removed it). reap_task_worktree_processes finds every process
 #     whose CURRENT WORKING DIRECTORY is this task's own worktree or tasktmp
-#     root via `lsof -a -d cwd` (cheap: bounded by process count, not by
-#     walking the worktree's file tree) and sends TERM, then KILL after a short
-#     grace period to any survivor whose process identity still matches. Both
+#     root via `teardown_lsof_cwd_scan`, whose normal path wall-clock-bounds
+#     `lsof -a -d cwd` rather than walking the worktree's file tree, and sends
+#     TERM and then KILL after a short grace period to any survivor whose
+#     process identity still matches. Both
 #     roots are unique per task and never
 #     shared, so this can never reach another task's or the primary's
 #     processes. Idempotent: nothing left to find is a silent no-op.
