@@ -1,0 +1,10 @@
+# before: parent_meta=present reconcile_nudged=present registry_route=present
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 1s ago).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision with a foreground checkpoint: bin/fm-watch-checkpoint.sh --seconds 180.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown ios complete (remote remote-mac:/private/var/folders/13/vrlqhz8x4z9b66rgdkl84xfm0000gn/T/fm-remote-teardown-cooldown.Ku1bET/remote-home)
+# after: parent_meta=absent reconcile_nudged=absent registry_route=absent

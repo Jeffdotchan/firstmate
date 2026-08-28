@@ -1,0 +1,3 @@
+# diagnostic rc=3 elapsed=1 lsof_called=absent
+error: refusing fleet lifecycle from inside a no-mistakes gate worktree (/Users/jeff/.no-mistakes/repos/b50ec20afc64.git)
+not ok - lsof-hang-bounded: the system-wide scan never ran
