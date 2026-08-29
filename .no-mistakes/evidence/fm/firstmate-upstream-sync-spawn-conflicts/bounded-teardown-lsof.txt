@@ -1,0 +1,1 @@
+ok - a hung system-wide lsof scan is bounded by wall clock and refuses instead of hanging
