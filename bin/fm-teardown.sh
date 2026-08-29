@@ -55,11 +55,13 @@
 # descendant home's task set before enumeration, and holds those locks through
 # child cleanup. Contention refuses the complete forced teardown before child
 # mutation. Local and remote retirement serialize their destructive phase with
-# that mate's backlog-handoff lock under the registry lock. Pending handoff wake
-# state is retired with the home, and local removal failure restores that state
-# before preserving the route for retry. Teardown then discards child work, kills
-# child runtime endpoints, and removes the retired home. Removing a leased home
-# releases its durable treehouse lease so the pool slot is freed,
+# that mate's backlog-handoff lock under the registry lock. Successful retirement
+# removes the mate's reconcile cooldown with its endpoint state, so a replacement
+# using the same id cannot inherit the retired endpoint's suppression window.
+# Pending handoff wake state is retired with the home, and local removal failure
+# restores that state before preserving the route for retry. Teardown then
+# discards child work, kills child runtime endpoints, and removes the retired home.
+# Removing a leased home releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force]
