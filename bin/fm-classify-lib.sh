@@ -200,13 +200,13 @@ status_is_paused_or_captain_held() {  # <status-line>
 # carry a token, the documented before-colon one wins and the note-head token
 # stays note text. A token deeper inside the note is prose, never a stated key,
 # so a summary merely MENTIONING "[key=x]" cannot open or close that decision.
-# A line with no token in those positions or as a trailing "[key=<slug>]" tag
-# uses the key "default", preserving the historical one-open-decision-per-task
-# behavior (a bare "resolved:" closes "default"). A trailing tag is the same
-# stated-key shape workers emit when they append "[key=...]" after the summary;
-# a token deeper inside the note remains prose. A stated key whose slug fails
-# the charset below is rejected (the folds skip the line), never rewritten to
-# "default".
+# An opening needs-decision/blocked line may also state its key as a trailing
+# "[key=<slug>]" tag, the shape workers emit when they append metadata after the
+# summary. A trailing token on any other verb is note prose, never authority to
+# close that key. A line with no stated key uses "default", preserving the
+# historical one-open-decision-per-task behavior (a bare "resolved:" closes
+# "default"). A stated key whose slug fails the charset below is rejected (the
+# folds skip the line), never rewritten to "default".
 # The parsers are pure reads of a single line. Status metadata may contain any
 # number of "[name=value]" tags before the colon, in any order, so verb parsing
 # ends at the first tag rather than special-casing "[key=...]".
@@ -335,16 +335,21 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
     n=${n#"[key=$k]"}
     n=${n#"${n%%[![:space:]]*}"}
   elif ! _fm_key_before_colon "$1" && ! _fm_key_at_note_head "$1" >/dev/null \
-    && k=$(_fm_key_at_note_tail "$1") && _fm_decision_slug_ok "$k"; then
+    && k=$(_fm_opening_key_at_note_tail "$1") && _fm_decision_slug_ok "$k"; then
     n=${n%"[key=$k]"}
     n=${n%"${n##*[![:space:]]}"}
   fi
   printf '%s' "$n"
 }
-# Raw slug of a complete "[key=<slug>]" token at the END of the note.
-# Mid-note mentions are not tails.
-_fm_key_at_note_tail() {  # <status-line> -> raw slug
+# Raw slug of a complete "[key=<slug>]" token at the END of an opening event's
+# note. Only needs-decision/blocked lines may use this worker-emitted shorthand;
+# the same bytes on a resolved/captain-held line are prose, not a keyed close.
+_fm_opening_key_at_note_tail() {  # <status-line> -> raw slug
   local rest
+  case "$(status_line_verb "$1")" in
+    needs-decision|blocked) : ;;
+    *) return 1 ;;
+  esac
   case "$1" in
     *:*) rest=${1#*:} ;;
     *) return 1 ;;
@@ -363,7 +368,7 @@ _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
     k=${k%%\]*}
   elif k=$(_fm_key_at_note_head "$1"); then
     :
-  elif k=$(_fm_key_at_note_tail "$1"); then
+  elif k=$(_fm_opening_key_at_note_tail "$1"); then
     :
   else
     printf 'default'
@@ -639,7 +644,9 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # Version 4 was already spent on the bracketed-tag parser change above, and a
 # cursor persisted under that reading predates this one, so it must still be
 # discarded and rebuilt from byte 0 under the new reading.
-FM_OPEN_DECISIONS_FOLD_VERSION=5
+# 6: a trailing key token is metadata only on needs-decision/blocked openers;
+# resolved/captain-held note prose can no longer impersonate a keyed close.
+FM_OPEN_DECISIONS_FOLD_VERSION=6
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> "dev:inode", empty on I/O failure

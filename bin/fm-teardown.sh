@@ -29,10 +29,11 @@
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
-# Ship and scout tasks with an OPEN status decision (needs-decision/blocked
-# that has not been resolved or captain-held-transferred) also refuse, even
-# when the worktree has no commits. An unanswered captain wait is not landed
-# work and must not be reaped.
+# Ship tasks with an OPEN status decision (needs-decision/blocked that has not
+# been resolved or captain-held-transferred) also refuse, even when the
+# worktree has no commits. Scout tasks use the shared captain-call completion
+# gate below, which reconciles stale decisions only after a single-owner task
+# reports a terminal state and its inventory has been explicitly attested.
 # Before destructive cleanup, teardown validates task check artifacts and any
 # matching quarantine entries as ordinary single-link files on the state
 # device. It refuses and preserves task state when that proof fails; otherwise
@@ -2654,7 +2655,10 @@ fi
 if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
   _td_status="$STATE/$ID.status"
   _td_open=''
-  if [ -f "$_td_status" ]; then
+  # A scout has already passed the shared completion owner above, including its
+  # terminal single-owner exception. Re-folding its raw history here would
+  # resurrect the stale decision that completion deliberately reconciled.
+  if [ "$KIND" != scout ] && [ -f "$_td_status" ]; then
     _td_open=$(status_open_decisions "$_td_status" || true)
   fi
   if [ -n "$_td_open" ]; then
