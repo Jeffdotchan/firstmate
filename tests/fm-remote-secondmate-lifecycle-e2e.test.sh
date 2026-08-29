@@ -1254,6 +1254,9 @@ jq -e --arg workspace "$SIBLING_WORKSPACE" --arg pane "$SIBLING_PANE" '
   || fail "remote retirement removed the sibling secondmate workspace or pane from fm-remote"
 assert_no_grep 'session stop' "$HERDR_LOG" "remote retirement stopped the shared fm-remote session"
 assert_no_grep 'server stop' "$HERDR_LOG" "remote retirement stopped the shared fm-remote server"
+if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+  printf '# observed remote retirement: home=absent metadata=absent reconcile-cooldown=absent sibling-workspace=present shared-session=running\n'
+fi
 pass "remote retirement refuses child work, then removes only its own endpoint while a shared-session sibling survives"
 
 echo "ALL TESTS PASSED"
