@@ -1,0 +1,4 @@
+ok - a hung system-wide lsof scan is bounded by wall clock and refuses instead of hanging
+# observed teardown stderr
+REFUSED: cannot determine leaked processes under /var/folders/13/vrlqhz8x4z9b66rgdkl84xfm0000gn/T//fm-teardown-tests.PxSFVY/lsof-hang-bounded/wt for task-x1 (lsof failed); preserving the worktree/tasktmp for manual inspection or retry.
+# observed preserved state: worktree=present metadata=present treehouse-return=no lsof-invoked=yes
