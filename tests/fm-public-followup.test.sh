@@ -146,7 +146,7 @@ seed_commitment() {
     > "$home/state/x-inbox/$request.json"
   chmod 700 "$home/state/x-inbox"
   chmod 600 "$home/state/x-inbox/$request.json"
-  FM_HOME="$home" bash -c \
+  FMX_NOW_OVERRIDE="$PF_TEST_NOW" FM_HOME="$home" bash -c \
     ". '$ROOT/bin/fm-x-lib.sh'; fmx_context_registry_set '$home/state' '$request' '$platform' 1900" \
     || fail "could not retain the private request context"
 
@@ -176,7 +176,7 @@ seed_repro_commitment() {   # <home> <obligation> <request> <work-home> <work-id
     --expires-at 2026-10-01T00:00:00Z >/dev/null || fail "add failed"
   tasks_in "$home" public-followup bind-work "$obligation" --relation-file "$home/relation.json" >/dev/null \
     || fail "bind-work failed"
-  FM_HOME="$home" bash -c \
+  FMX_NOW_OVERRIDE="$PF_TEST_NOW" FM_HOME="$home" bash -c \
     ". '$ROOT/bin/fm-x-lib.sh'; fmx_context_registry_set '$home/state' '$request' discord 2000" \
     || fail "context retain failed"
   run_pf "$home" register "$obligation" --relation rel-code --work-home "$work_home" \
