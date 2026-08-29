@@ -2328,6 +2328,64 @@ EOF
   pass "an erroring lsof scan refuses teardown and preserves the task"
 }
 
+# A single process wedged in uninterruptible (U/D) state - a `find` stuck on an
+# unresponsive network mount - makes a system-wide `lsof -a -d cwd` scan block
+# forever, and the reaper runs that scan repeatedly per root. The scan is bounded
+# by WALL CLOCK, not just by process count, so that hang becomes the loud REFUSED
+# path above instead of a teardown that never returns and blows its 90s budget.
+# The bound is exactly what this proves: the stand-in lsof below never returns on
+# its own, so an unbounded scan cannot finish inside the assertion window.
+test_hung_lsof_scan_is_bounded_and_refuses() {
+  local case_dir rc started elapsed bound=3 window=45
+  case_dir=$(make_case lsof-hang-bounded)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  cat > "$case_dir/fakebin/lsof" <<SH
+#!/usr/bin/env bash
+# Stands in for the wedged-cwd scan: records the call, then never returns.
+printf 'called\n' >> "$case_dir/lsof-called"
+sleep 600
+SH
+  cat > "$case_dir/fakebin/treehouse" <<EOF
+#!/usr/bin/env bash
+printf 'return\n' >> "$case_dir/treehouse.log"
+EOF
+  chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/treehouse"
+
+  # Bound the teardown call itself, so an unbounded scan fails this test in
+  # ${window}s with a clear verdict instead of hanging on the 600s stand-in.
+  started=$(date +%s)
+  rc=0
+  (
+    export FM_TEARDOWN_LSOF_TIMEOUT=$bound
+    # shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
+    . "$ROOT/bin/fm-timeout-lib.sh"
+    fm_run_timed "$window" env - \
+      "PATH=$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+      "HOME=${HOME:-/tmp}" \
+      "FM_GATE_REFUSE_BYPASS=$FM_GATE_REFUSE_BYPASS" \
+      "FM_TEARDOWN_LSOF_TIMEOUT=$bound" \
+      "FM_ROOT_OVERRIDE=$ROOT" \
+      "FM_STATE_OVERRIDE=$case_dir/state" \
+      "FM_CONFIG_OVERRIDE=$case_dir/config" \
+      "$TEARDOWN" task-x1 > "$case_dir/stdout" 2> "$case_dir/stderr"
+  ) || rc=$?
+  elapsed=$(( $(date +%s) - started ))
+
+  assert_present "$case_dir/lsof-called" "lsof-hang-bounded: the system-wide scan never ran"
+  [ "$rc" -ne 124 ] || fail \
+    "lsof-hang-bounded: teardown did not finish within ${window}s against a ${bound}s scan bound; the scan is not bounded by wall clock"
+  [ "$elapsed" -lt "$window" ] || fail \
+    "lsof-hang-bounded: teardown took ${elapsed}s against a ${bound}s scan bound; the scan is not bounded by wall clock"
+  expect_code 1 "$rc" "lsof-hang-bounded: teardown should refuse when the scan cannot complete"
+  assert_grep "REFUSED: cannot determine leaked processes under $case_dir/wt for task-x1 (lsof failed)" "$case_dir/stderr" \
+    "lsof-hang-bounded: teardown did not explain the bounded-scan refusal"
+  assert_present "$case_dir/wt" "lsof-hang-bounded: teardown removed the worktree"
+  assert_present "$case_dir/state/task-x1.meta" "lsof-hang-bounded: teardown removed task metadata"
+  assert_absent "$case_dir/treehouse.log" "lsof-hang-bounded: teardown returned the worktree"
+  pass "a hung system-wide lsof scan is bounded by wall clock and refuses instead of hanging"
+}
+
 test_reused_pid_identity_is_not_force_killed() {
   local case_dir rc pid
   case_dir=$(make_case reused-pid-identity)
@@ -2730,6 +2788,7 @@ test_leaked_worktree_process_is_reaped
 test_leaked_tasktmp_process_is_reaped
 test_lsof_absent_reaps_tmux_process_group
 test_lsof_error_refuses_before_removal
+test_hung_lsof_scan_is_bounded_and_refuses
 test_reused_pid_identity_is_not_force_killed
 test_exec_changed_process_is_still_reaped
 test_process_spawned_during_grace_is_reaped_on_later_pass

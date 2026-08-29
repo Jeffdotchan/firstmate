@@ -55,11 +55,13 @@
 # descendant home's task set before enumeration, and holds those locks through
 # child cleanup. Contention refuses the complete forced teardown before child
 # mutation. Local and remote retirement serialize their destructive phase with
-# that mate's backlog-handoff lock under the registry lock. Pending handoff wake
-# state is retired with the home, and local removal failure restores that state
-# before preserving the route for retry. Teardown then discards child work, kills
-# child runtime endpoints, and removes the retired home. Removing a leased home
-# releases its durable treehouse lease so the pool slot is freed,
+# that mate's backlog-handoff lock under the registry lock. Successful retirement
+# removes the mate's reconcile cooldown with its endpoint state, so a replacement
+# using the same id cannot inherit the retired endpoint's suppression window.
+# Pending handoff wake state is retired with the home, and local removal failure
+# restores that state before preserving the route for retry. Teardown then
+# discards child work, kills child runtime endpoints, and removes the retired home.
+# Removing a leased home releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force]
@@ -112,8 +114,8 @@
 #     crew's worktree, so they are not orphaned by removing the worktree.
 #     conclude_task_no_mistakes_run attributes the active-or-most-recent run to
 #     THIS task only when its branch AND code identity (bin/fm-nm-run-lib.sh's
-#     fm_nm_head_matches_worktree, the same rule bin/fm-crew-state.sh uses) both
-#     match this worktree, then runs `no-mistakes axi abort --run <id>` for
+#     strict fm_nm_head_matches_worktree rule) both match this worktree, then
+#     runs `no-mistakes axi abort --run <id>` for
 #     that verified run instance. A run already terminal
 #     (an outcome is set) or not parked at a gate is left untouched. Idempotent:
 #     an already-aborted run reads back terminal and is skipped on retry.
@@ -125,9 +127,10 @@
 #     hours with no live task meta to attribute them to once teardown had
 #     already removed it). reap_task_worktree_processes finds every process
 #     whose CURRENT WORKING DIRECTORY is this task's own worktree or tasktmp
-#     root via `lsof -a -d cwd` (cheap: bounded by process count, not by
-#     walking the worktree's file tree) and sends TERM, then KILL after a short
-#     grace period to any survivor whose process identity still matches. Both
+#     root via `teardown_lsof_cwd_scan`, whose normal path wall-clock-bounds
+#     `lsof -a -d cwd` rather than walking the worktree's file tree, and sends
+#     TERM and then KILL after a short grace period to any survivor whose
+#     process identity still matches. Both
 #     roots are unique per task and never
 #     shared, so this can never reach another task's or the primary's
 #     processes. Idempotent: nothing left to find is a silent no-op.
@@ -674,7 +677,7 @@ remote_secondmate_teardown() {
   mv -f -- "$tmp" "$SECONDMATE_REG"
   status_retire_presentation_task "$STATE" "$ID" || return 1
   archive_dispatch_record "$STATE/$ID.meta" "$ID"
-  rm -f -- "$STATE/$ID.meta" "$STATE/$ID.turn-ended"
+  rm -f -- "$STATE/$ID.meta" "$STATE/$ID.turn-ended" "$STATE/$ID.reconcile-nudged"
   printf 'teardown %s complete (remote %s:%s)\n' "$ID" "$remote_host" "$remote_home"
   return 0
 }
@@ -2569,7 +2572,7 @@ cleanup_firstmate_home_children() {
       "$sub_state/$child_id.meta" "$sub_state/$child_id.pi-ext.ts" \
       "$sub_state/$child_id.grok-turnend-token" "$sub_state/$child_id.kimi-turnend-token" \
       "$sub_state/$child_id.muse-session" "$sub_state/$child_id.muse-session-current" \
-      "$sub_state/$child_id.cursor-session"
+      "$sub_state/$child_id.cursor-session" "$sub_state/$child_id.reconcile-nudged"
   done
 }
 
@@ -2672,7 +2675,8 @@ if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
   fi
   # After complete, the status fold is empty (captain-held transfer) but the
   # backlog hold is still queued+held until resolve/decline.
-  if fm_tasks_axi_compatible; then
+  # Honor the configured backlog owner before reading that hold.
+  if fm_tasks_axi_backend_available "$CONFIG"; then
     if FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
         FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-decision-hold.sh" has-active "$ID"; then
       echo "REFUSED: task $ID still has an active captain-held decision." >&2
@@ -2924,7 +2928,8 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
-  "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note"
+  "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note" \
+  "$STATE/$ID.reconcile-nudged"
 # The steering inbox (bin/fm-task-inbox-lib.sh) is runtime state for the
 # retired endpoint; teardown only runs after landing is confirmed, so any
 # leftover unhandled steer here is moot rather than unlanded work.

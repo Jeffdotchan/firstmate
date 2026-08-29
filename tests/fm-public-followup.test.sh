@@ -23,6 +23,9 @@ TEARDOWN="$ROOT/bin/fm-teardown.sh"
 PROMOTE="$ROOT/bin/fm-promote.sh"
 SESSION_START="$ROOT/bin/fm-session-start.sh"
 TMP_ROOT=$(fm_test_tmproot fm-public-followup)
+# Freeze routine commands inside the fixed fixture's follow-up window.
+# Expiry tests override this clock at the call site.
+PF_TEST_NOW=1787539200
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found"; exit 0; }
@@ -97,7 +100,8 @@ run_pf() {  # <home> <args...>
   shift
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FAKE_CURL_LOG="${FAKE_CURL_LOG:-}" \
-    FAKE_FOLLOWUP_CODE="${FAKE_FOLLOWUP_CODE:-200}" "$PF" "$@"
+    FAKE_FOLLOWUP_CODE="${FAKE_FOLLOWUP_CODE:-200}" \
+    FMX_NOW_OVERRIDE="${FMX_NOW_OVERRIDE:-$PF_TEST_NOW}" "$PF" "$@"
 }
 
 tasks_in() {  # <home> <tasks-axi args...>
@@ -142,7 +146,7 @@ seed_commitment() {
     > "$home/state/x-inbox/$request.json"
   chmod 700 "$home/state/x-inbox"
   chmod 600 "$home/state/x-inbox/$request.json"
-  FM_HOME="$home" bash -c \
+  FMX_NOW_OVERRIDE="$PF_TEST_NOW" FM_HOME="$home" bash -c \
     ". '$ROOT/bin/fm-x-lib.sh'; fmx_context_registry_set '$home/state' '$request' '$platform' 1900" \
     || fail "could not retain the private request context"
 
@@ -172,7 +176,7 @@ seed_repro_commitment() {   # <home> <obligation> <request> <work-home> <work-id
     --expires-at 2026-10-01T00:00:00Z >/dev/null || fail "add failed"
   tasks_in "$home" public-followup bind-work "$obligation" --relation-file "$home/relation.json" >/dev/null \
     || fail "bind-work failed"
-  FM_HOME="$home" bash -c \
+  FMX_NOW_OVERRIDE="$PF_TEST_NOW" FM_HOME="$home" bash -c \
     ". '$ROOT/bin/fm-x-lib.sh'; fmx_context_registry_set '$home/state' '$request' discord 2000" \
     || fail "context retain failed"
   run_pf "$home" register "$obligation" --relation rel-code --work-home "$work_home" \
@@ -1563,11 +1567,11 @@ test_rechain_claims_delivered_source_once() {
   FAKE_CURL_LOG="$log" run_pf "$home" consume >/dev/null || fail "consume failed"
   FAKE_CURL_LOG="$log" run_pf "$home" deliver public-final-claim-a >/dev/null || fail "deliver failed"
 
-  FMX_NOW_OVERRIDE=1787539200 run_pf "$home" rechain public-final-claim-b \
+  FMX_NOW_OVERRIDE="$PF_TEST_NOW" run_pf "$home" rechain public-final-claim-b \
     --from public-final-claim-a --work-home main --work-id ship-claim-b \
     --expected pr-merged > "$home/rechain-b.out" 2>&1 &
   pid_b=$!
-  FMX_NOW_OVERRIDE=1787539200 run_pf "$home" rechain public-final-claim-c \
+  FMX_NOW_OVERRIDE="$PF_TEST_NOW" run_pf "$home" rechain public-final-claim-c \
     --from public-final-claim-a --work-home main --work-id ship-claim-c \
     --expected pr-merged > "$home/rechain-c.out" 2>&1 &
   pid_c=$!

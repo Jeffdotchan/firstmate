@@ -1220,6 +1220,7 @@ while [ ! -f "$TMP_ROOT/launch.entered" ]; do
   [ "$launch_wait" -le 1500 ] || fail "remote respawn never reached its blocked launch"
   sleep 0.02
 done
+: > "$PARENT/state/ios.reconcile-nudged"
 remote_env "$ROOT/bin/fm-teardown.sh" ios > "$TMP_ROOT/teardown-serialized.out" 2>&1 &
 teardown_pid=$!
 sleep 0.2
@@ -1240,6 +1241,8 @@ if ! wait "$teardown_pid"; then
 fi
 assert_absent "$REMOTE_HOME" "remote retirement did not remove the remote home"
 assert_absent "$PARENT/state/ios.meta" "remote retirement did not remove parent metadata"
+assert_absent "$PARENT/state/ios.reconcile-nudged" \
+  "remote retirement left a reconciliation cooldown that could suppress a replacement nudge"
 assert_absent "$PARENT/state/.backlog-handoff-ios.wake-pending" \
   "remote retirement left receiver wake state that could poison a replacement route"
 assert_absent "$retired_wake_rec" "remote retirement left the retired receiver wake correlation"
@@ -1251,6 +1254,9 @@ jq -e --arg workspace "$SIBLING_WORKSPACE" --arg pane "$SIBLING_PANE" '
   || fail "remote retirement removed the sibling secondmate workspace or pane from fm-remote"
 assert_no_grep 'session stop' "$HERDR_LOG" "remote retirement stopped the shared fm-remote session"
 assert_no_grep 'server stop' "$HERDR_LOG" "remote retirement stopped the shared fm-remote server"
+if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+  printf '# observed remote retirement: home=absent metadata=absent reconcile-cooldown=absent sibling-workspace=present shared-session=running\n'
+fi
 pass "remote retirement refuses child work, then removes only its own endpoint while a shared-session sibling survives"
 
 echo "ALL TESTS PASSED"
